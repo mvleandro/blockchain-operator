@@ -1,0 +1,21 @@
+apiVersion: infra.blockchain.corp/v1
+kind: EthereumNode
+metadata:
+  name: ethereumnode-sample
+spec:
+  network: "sepolia"
+  syncMode: "snap"
+  replicas: 1
+  storageSize: "20Gi"
+  
+  # 1. Checkpoint Sync (Use um endpoint público confiável)
+  checkpointSyncURL: "https://sepolia.beaconstate.info"
+  
+  # 2. Recursos (Garantia de performance)
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "4Gi" # Limite rígido para evitar travar o nó físico

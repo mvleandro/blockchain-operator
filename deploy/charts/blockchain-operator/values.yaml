@@ -1,0 +1,27 @@
+# values.yaml
+
+image:
+  # Removemos o "ghcr.io/..." e usamos apenas o nome que você definiu no make docker-build
+  repository: blockchain-operator
+  
+  # O Kind já tem a imagem, então "IfNotPresent" diz: "Use a que já está aí".
+  # Se você colocar "Always", ele vai tentar baixar do Docker Hub e falhar.
+  pullPolicy: IfNotPresent
+  
+  # A tag que usamos no make docker-build IMG=blockchain-operator:v1
+  tag: "v1"
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Configurações do Controller
+controller:
+  metricsAddr: ":8080"
+  enableLeaderElection: false
+
+replicaCount: 1
