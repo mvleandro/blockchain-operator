@@ -158,6 +158,6 @@ This project is built with [Kubebuilder](https://book.kubebuilder.io/).
 
 ## 📜 License
 
-Apache 2.0 - See [LICENSE](https://www.google.com/search?q=LICENSE) for details.
+Apache 2.0 - See [LICENSE](./LICENSE) for details.
 
 *Built with ❤️ by a [@mvleandro](https://github.com/mvleandro).*
