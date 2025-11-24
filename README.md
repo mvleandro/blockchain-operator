@@ -33,7 +33,7 @@ The **Blockchain Operator** codifies SRE operational knowledge into software. It
 
 The operator implements the **Reconcile Loop** pattern to enforce the desired state.
 
-::: mermaid
+```mermaid
 graph TD
     User[User / GitOps] -->|Apply YAML| API[K8s API Server]
     API -->|Event| Operator[Blockchain Operator]
@@ -52,7 +52,7 @@ graph TD
             Geth ---|Engine API Auth| Prysm
         end
     end
-:::
+```
 
 ## 🚀 Getting Started
 
