@@ -22,6 +22,7 @@ The **Blockchain Operator** codifies SRE operational knowledge into software. It
 
 ### Key Features
 
+- ✅ **Intent-Based Types:** Just define the `nodeType` (e.g., `validator`, `gateway`), and the operator configures the topology, flags, and sidecars automatically.
 - ✅ **GitOps Ready:** Declarative `EthereumNode` CRD.
 - ✅ **The "Merge" Architecture:** Automatically deploys Geth + Prysm as sidecars with shared auth.
 - ✅ **Self-Healing:** Detects configuration drift (e.g., deleted services, changed ports) and fixes it automatically.
@@ -50,6 +51,9 @@ graph TD
         subgraph "Pod (Sidecar Pattern)"
             Geth[Execution Client] <--> Prysm[Consensus Client]
             Geth ---|Engine API Auth| Prysm
+
+            %% Optional Container injected only for nodeType: validator
+            Prysm -.->|gRPC| Validator[Validator Client (Optional)]            
         end
     end
 ```
@@ -76,44 +80,81 @@ helm install blockchain-operator ./deploy/charts/blockchain-operator \
 
 ```
 
-### Usage: Deploying your First Node
+## Usage: Node Types
+
+The operator supports 4 distinct node types optimized for different use cases. You don't need to manually configure flags; just pick a type!
+
+| Type      | Description                                                                 | Implications                                                                 |
+|-----------|-----------------------------------------------------------------------------|------------------------------------------------------------------------------|
+| `full`     | A standard node that maintains current state and verifies blocks.         | Uses `snap` sync. Optimized for keeping up with the head of the chain.       |
+| `archive`  | An archive node that retains all historical state data for querying the past. | Uses `archive` sync and GC mode. **Requires significantly more storage.**   |
+| `validator`| A node that participates in Proof-of-Stake consensus by validating blocks. | Uses `snap` sync. **Automatically injects the Validator Client sidecar.**   |
+| `gateway`  | A node optimized for high-volume JSON-RPC traffic.                         | Uses `snap` sync. Tunes API limits and resource allocation for serving dApps.|
+
+
+### Example 1: Deploying a Full Node
 
 Once the operator is running, deploying a full node is as simple as applying this manifest:
 
-```
+``` yaml
 apiVersion: infra.blockchain.corp/v1
 kind: EthereumNode
 metadata:
-  name: ethereumnode-sample
+  name: my-full-node
   namespace: blockchain-operator-system
 spec:
-  # Network Configuration
+  # Here is the magic: we only define the INTENTION of the node.
+  # The operator will automatically set up Geth (snap) + Prysm.
+  nodeType: full
+
+  # Choose the network: mainnet, sepolia, or holesky
   network: "sepolia"
-  syncMode: "snap"
+
+  # Number of replicas (Pods)
   replicas: 1
 
-  # Storage (NVMe/SSD recommended)
+  # Disk size. 
+  # For a Full Node on Sepolia or Mainnet, I recommend at least 500Gi of SSD/NVMe.
   storageSize: "500Gi"
 
-  # Performance Tuning
+  # Checkpoint Sync: Essential for the node to become "Ready" in minutes, not days.
+  # This endpoint is public and reliable for the Sepolia network.
+  checkpointSyncURL: "https://sepolia.beaconstate.info"
+
+  # Recommended resources for a stable Full Node
   resources:
     requests:
-      cpu: "2000m"
-      memory: "4Gi"
+      cpu: "2000m"  # 2 vCPUs guaranteed
+      memory: "4Gi" # 4GB RAM guaranteed
     limits:
-      cpu: "4000m"
-      memory: "8Gi"
-
-  # Instant Sync (Checkpoint)
-  checkpointSyncURL: "[https://sepolia.beaconstate.info](https://sepolia.beaconstate.info)"
-
+      cpu: "4000m"  # Up to 4 vCPUs at peak
+      memory: "8Gi" # Up to 8GB RAM at peak
 ```
 
 Apply it:
 
-```
+``` bash
 kubectl apply -f config/samples/infra_v1_ethereumnode.yaml
+```
 
+### Example 2: Deploying a Validator Node
+
+Automatically injects the Validator Client sidecar. Requires a secret named <node-name>-validator-keys with your keystores.
+
+``` yaml
+apiVersion: infra.blockchain.corp/v1
+kind: EthereumNode
+metadata:
+  name: my-validator
+  namespace: blockchain-operator-system
+spec:
+  nodeType: validator
+  network: "sepolia"
+  replicas: 1
+  storageSize: "500Gi"
+  checkpointSyncURL: "[https://sepolia.beaconstate.info](https://sepolia.beaconstate.info)"
+  
+  # Ensure you created the secret 'my-validator-validator-keys' beforehand!
 ```
 
 ## 🛠 Technical Deep Dive (For Engineers)
