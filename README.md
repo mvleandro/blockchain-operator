@@ -36,24 +36,24 @@ The operator implements the **Reconcile Loop** pattern to enforce the desired st
 
 ```mermaid
 graph TD
-    User[User / GitOps] -->|Apply YAML| API[K8s API Server]
-    API -->|Event| Operator[Blockchain Operator]
+    User["User / GitOps"] -->|Apply YAML| API["K8s API Server"]
+    API -->|Event| Operator["Blockchain Operator"]
 
     subgraph "Managed Infrastructure"
-        Operator -->|Reconciles| STS[StatefulSet]
-        Operator -->|Reconciles| SVC_H[Headless Service]
-        Operator -->|Reconciles| SVC_LB[P2P LoadBalancer]
-        Operator -->|Reconciles| Secret[JWT Secret]
+        Operator -->|Reconciles| STS["StatefulSet"]
+        Operator -->|Reconciles| SVC_H["Headless Service"]
+        Operator -->|Reconciles| SVC_LB["P2P LoadBalancer"]
+        Operator -->|Reconciles| Secret["JWT Secret"]
 
-        STS -->|Mounts| PVC[Persistent Volume]
-        STS -->|Runs| Pod[Node Pod]
+        STS -->|Mounts| PVC["Persistent Volume"]
+        STS -->|Runs| Pod["Node Pod"]
 
         subgraph "Pod (Sidecar Pattern)"
-            Geth[Execution Client] <--> Prysm[Consensus Client]
+            Geth["Execution Client"] <--> Prysm["Consensus Client"]
             Geth ---|Engine API Auth| Prysm
 
-            %% Optional Container injected only for nodeType: validator
-            Prysm -.->|gRPC| Validator[Validator Client (Optional)]            
+            %% Optional container injected only for nodeType: validator
+            Prysm -.->|gRPC| Validator["Validator Client - Optional"]
         end
     end
 ```
