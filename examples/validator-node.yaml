@@ -1,0 +1,22 @@
+apiVersion: infra.blockchain.corp/v1
+kind: EthereumNode
+metadata:
+  name: my-validator-node
+  namespace: blockchain-operator-system
+spec:
+  # The operator will inject the 'validator-client' container and mount the secret
+  nodeType: validator
+  
+  network: "sepolia"
+  replicas: 1 
+  
+  storageSize: "500Gi"
+  checkpointSyncURL: "https://sepolia.beaconstate.info"
+  
+  resources:
+    requests:
+      cpu: "2500m" # A bit more CPU as it runs 3 containers
+      memory: "5Gi"
+    limits:
+      cpu: "5000m"
+      memory: "10Gi"

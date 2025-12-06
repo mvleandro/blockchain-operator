@@ -64,12 +64,13 @@ type EthereumNodeReconciler struct {
 }
 
 // --- RBAC Permissions ---
-//+kubebuilder:rbac:groups=infra.blockchain.corp,resources=ethereumnodes,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=infra.blockchain.corp,resources=ethereumnodes/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
-//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infra.blockchain.corp,resources=ethereumnodes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=infra.blockchain.corp,resources=ethereumnodes/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 func (r *EthereumNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
@@ -208,6 +209,20 @@ func (r *EthereumNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request
 func (r *EthereumNodeReconciler) desiredStatefulSet(ethNode *infrav1.EthereumNode) (*appsv1.StatefulSet, error) {
 	labels := map[string]string{"app": "ethereum-node", "instance": ethNode.Name}
 
+	// Define the default sync mode based on NodeType if syncMode is not set
+	syncMode := ethNode.Spec.SyncMode
+	if syncMode == "" {
+		switch ethNode.Spec.NodeType {
+		case infrav1.NodeTypeArchive:
+			syncMode = "archive"
+		default:
+			// Full, Validator, and Gateway nodes use 'snap' sync by default.
+			// 'snap' is the recommended strategy for Geth on Mainnet/Sepolia as it downloads
+			// the state much faster than 'full' sync while maintaining full security and verification.
+			syncMode = "snap"
+		}
+	}
+
 	// Define the name of the JWT secret (fallback to "jwt-secret" if empty)
 	jwtSecret := "jwt-secret"
 	if ethNode.Spec.JWTSecretName != "" {
@@ -218,7 +233,7 @@ func (r *EthereumNodeReconciler) desiredStatefulSet(ethNode *infrav1.EthereumNod
 	gethArgs := []string{
 		"--http", "--http.addr=0.0.0.0", "--http.vhosts=*",
 		"--" + ethNode.Spec.Network,
-		"--syncmode=" + ethNode.Spec.SyncMode,
+		"--syncmode=" + syncMode,
 		"--datadir=/data/geth",
 		"--authrpc.addr=0.0.0.0",
 		"--authrpc.port=8551",
@@ -226,11 +241,24 @@ func (r *EthereumNodeReconciler) desiredStatefulSet(ethNode *infrav1.EthereumNod
 		"--authrpc.jwtsecret=/secrets/jwt.hex",
 	}
 
+	// Fine-tuning based on NodeType
+	if ethNode.Spec.NodeType == infrav1.NodeTypeArchive {
+		gethArgs = append(gethArgs, "--gcmode=archive")
+	}
+
+	if ethNode.Spec.NodeType == infrav1.NodeTypeGateway {
+		// Gateway needs more APIs exposed and higher limits
+		gethArgs = append(gethArgs,
+			"--http.api=eth,net,web3,debug,txpool",
+			"--rpc.txfeecap=0",
+		)
+	}
+
 	// --- CONTAINER 2: PRYSM (CONSENSUS) ---
 	// Note: In production, we would validate if the network is sepolia/mainnet to adjust flags
 	prysmArgs := []string{
-		"--" + ethNode.Spec.Network,                  // ex: --sepolia
-		"--execution-endpoint=http://localhost:8551", // Connect to local Geth
+		"--" + ethNode.Spec.Network,
+		"--execution-endpoint=http://localhost:8551",
 		"--jwt-secret=/secrets/jwt.hex",
 		"--datadir=/data/prysm",
 		"--accept-terms-of-use",
@@ -255,6 +283,84 @@ func (r *EthereumNodeReconciler) desiredStatefulSet(ethNode *infrav1.EthereumNod
 		storageClass = &ethNode.Spec.StorageClassName
 	}
 
+	// Container 1: Execution (Geth)
+	containers := []corev1.Container{
+		{
+			Name:  "execution-client",
+			Image: "ethereum/client-go:stable",
+			Args:  gethArgs,
+			Ports: []corev1.ContainerPort{
+				{Name: "rpc", ContainerPort: 8545},
+				{Name: "engine", ContainerPort: 8551},
+				{Name: "p2p-tcp", ContainerPort: 30303, Protocol: corev1.ProtocolTCP},
+				{Name: "p2p-udp", ContainerPort: 30303, Protocol: corev1.ProtocolUDP},
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "data", MountPath: "/data", SubPath: "geth"},
+				{Name: "jwt-secret", MountPath: "/secrets", ReadOnly: true},
+			},
+			Resources: ethNode.Spec.Resources,
+		},
+		// Container 2: Consensus (Prysm Beacon)
+		{
+			Name:  "consensus-client",
+			Image: "gcr.io/prysmaticlabs/prysm/beacon-chain:stable",
+			Args:  prysmArgs,
+			Ports: []corev1.ContainerPort{
+				{Name: "rpc-prysm", ContainerPort: 4000},
+				{Name: "p2p-tcp", ContainerPort: 13000, Protocol: corev1.ProtocolTCP},
+				{Name: "p2p-udp", ContainerPort: 12000, Protocol: corev1.ProtocolUDP},
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "data", MountPath: "/data", SubPath: "prysm"},
+				{Name: "jwt-secret", MountPath: "/secrets", ReadOnly: true},
+			},
+			Resources: ethNode.Spec.Resources,
+		},
+	}
+
+	// Container 3: Validator Client (Only if NodeType == Validator)
+	if ethNode.Spec.NodeType == infrav1.NodeTypeValidator {
+		validatorContainer := corev1.Container{
+			Name:  "validator-client",
+			Image: "gcr.io/prysmaticlabs/prysm/validator:stable",
+			Args: []string{
+				"--" + ethNode.Spec.Network,
+				"--beacon-rpc-provider=localhost:4000",
+				"--wallet-dir=/secrets/validator",
+				"--wallet-password-file=/secrets/validator/password.txt",
+				"--accept-terms-of-use",
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				// Assumes the user created a secret named 'validator-keys'
+				{Name: "validator-keys", MountPath: "/secrets/validator", ReadOnly: true},
+			},
+			Resources: ethNode.Spec.Resources,
+		}
+		containers = append(containers, validatorContainer)
+	}
+
+	// Volumes definition
+	volumes := []corev1.Volume{
+		{
+			Name: "jwt-secret",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: jwtSecret},
+			},
+		},
+	}
+
+	// If NodeType is Validator, we need to mount the validator keys
+	if ethNode.Spec.NodeType == infrav1.NodeTypeValidator {
+		volumes = append(volumes, corev1.Volume{
+			Name: "validator-keys",
+			VolumeSource: corev1.VolumeSource{
+				// TODO: Document that the user must create this secret
+				Secret: &corev1.SecretVolumeSource{SecretName: ethNode.Name + "-validator-keys"},
+			},
+		})
+	}
+
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ethNode.Name,
@@ -268,49 +374,8 @@ func (r *EthereumNodeReconciler) desiredStatefulSet(ethNode *infrav1.EthereumNod
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
-					Volumes: []corev1.Volume{
-						{
-							Name: "jwt-secret",
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{SecretName: jwtSecret},
-							},
-						},
-					},
-					Containers: []corev1.Container{
-						// --- GETH ---
-						{
-							Name:  "execution-client",
-							Image: "ethereum/client-go:stable",
-							Args:  gethArgs,
-							Ports: []corev1.ContainerPort{
-								{Name: "rpc", ContainerPort: 8545},
-								{Name: "engine", ContainerPort: 8551},
-								{Name: "p2p-tcp", ContainerPort: 30303, Protocol: corev1.ProtocolTCP},
-								{Name: "p2p-udp", ContainerPort: 30303, Protocol: corev1.ProtocolUDP},
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{Name: "data", MountPath: "/data", SubPath: "geth"},
-								{Name: "jwt-secret", MountPath: "/secrets", ReadOnly: true},
-							},
-							Resources: ethNode.Spec.Resources,
-						},
-						// --- PRYSM (SIDECAR) ---
-						{
-							Name:  "consensus-client",
-							Image: "gcr.io/prysmaticlabs/prysm/beacon-chain:stable",
-							Args:  prysmArgs,
-							Ports: []corev1.ContainerPort{
-								{Name: "rpc-prysm", ContainerPort: 4000},
-								{Name: "p2p-tcp", ContainerPort: 13000, Protocol: corev1.ProtocolTCP},
-								{Name: "p2p-udp", ContainerPort: 12000, Protocol: corev1.ProtocolUDP},
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{Name: "data", MountPath: "/data", SubPath: "prysm"},
-								{Name: "jwt-secret", MountPath: "/secrets", ReadOnly: true},
-							},
-							Resources: ethNode.Spec.Resources,
-						},
-					},
+					Volumes:    volumes,
+					Containers: containers,
 				},
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{

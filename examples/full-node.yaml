@@ -1,0 +1,32 @@
+apiVersion: infra.blockchain.corp/v1
+kind: EthereumNode
+metadata:
+  name: my-full-node
+  namespace: blockchain-operator-system
+spec:
+  # Here is the magic: we only define the INTENTION of the node.
+  # The operator will automatically set up Geth (snap) + Prysm.
+  nodeType: full
+
+  # Choose the network: mainnet, sepolia, or holesky
+  network: "sepolia"
+
+  # Number of replicas (Pods)
+  replicas: 1
+
+  # Disk size. 
+  # For a Full Node on Sepolia or Mainnet, I recommend at least 500Gi of SSD/NVMe.
+  storageSize: "500Gi"
+
+  # Checkpoint Sync: Essential for the node to become "Ready" in minutes, not days.
+  # This endpoint is public and reliable for the Sepolia network.
+  checkpointSyncURL: "https://sepolia.beaconstate.info"
+
+  # Recommended resources for a stable Full Node
+  resources:
+    requests:
+      cpu: "2000m"  # 2 vCPUs guaranteed
+      memory: "4Gi" # 4GB RAM guaranteed
+    limits:
+      cpu: "4000m"  # Up to 4 vCPUs at peak
+      memory: "8Gi" # Up to 8GB RAM at peak

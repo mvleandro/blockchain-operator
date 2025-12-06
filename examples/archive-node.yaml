@@ -1,0 +1,25 @@
+apiVersion: infra.blockchain.corp/v1
+kind: EthereumNode
+metadata:
+  name: my-archive-node
+  namespace: blockchain-operator-system
+spec:
+  # Define that this node should keep the full history
+  nodeType: archive
+  
+  network: "sepolia"
+  replicas: 1
+  
+  # Archive nodes occupy A LOT of space. 
+  # For Mainnet, more than 2TB would be needed. For Sepolia, 1TB is safe to start.
+  storageSize: "1Ti"
+  
+  checkpointSyncURL: "https://sepolia.beaconstate.info"
+  
+  resources:
+    requests:
+      cpu: "4000m"  # Archive demands more processing for heavy queries
+      memory: "8Gi"
+    limits:
+      cpu: "6000m"
+      memory: "16Gi"

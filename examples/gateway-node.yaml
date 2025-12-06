@@ -1,0 +1,24 @@
+apiVersion: infra.blockchain.corp/v1
+kind: EthereumNode
+metadata:
+  name: my-gateway-node
+  namespace: blockchain-operator-system
+spec:
+  # Define that it is a node optimized for public/private RPC
+  nodeType: gateway
+  
+  network: "sepolia"
+  
+  # Gateways usually run in HA (High Availability)
+  replicas: 2
+  
+  storageSize: "500Gi"
+  checkpointSyncURL: "https://sepolia.beaconstate.info"
+  
+  resources:
+    requests:
+      cpu: "4000m"
+      memory: "8Gi"
+    limits:
+      cpu: "8000m"
+      memory: "16Gi" # More RAM for caching RPC responses

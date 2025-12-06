@@ -56,6 +56,24 @@ spec:
                 - sepolia
                 - holesky
                 type: string
+              nodeType:
+                allOf:
+                - enum:
+                  - full
+                  - archive
+                  - validator
+                  - gateway
+                - enum:
+                  - full
+                  - archive
+                  - validator
+                  - gateway
+                default: full
+                description: |-
+                  NodeType defines the type of Ethereum node.
+                  It determines the node's role and configuration.
+                  Possible values: full, archive, validator, gateway.
+                type: string
               replicas:
                 default: 1
                 description: Replicas defines how many nodes of this type we want.
@@ -131,17 +149,13 @@ spec:
                 description: 'StorageSize defines the disk size. E.g.: "500Gi"'
                 type: string
               syncMode:
-                default: snap
-                description: SyncMode defines the synchronization strategy.
-                enum:
-                - snap
-                - full
-                - archive
+                description: SyncMode is optional. If it's not set, the operator infers
+                  the synchronization strategy based on the NodeType.
                 type: string
             required:
             - network
+            - nodeType
             - replicas
-            - syncMode
             type: object
           status:
             description: EthereumNodeStatus defines the observed state of EthereumNode
